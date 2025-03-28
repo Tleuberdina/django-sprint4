@@ -18,7 +18,8 @@ from .forms import UserProfileForm
 
 
 def get_posts_queryset(apply_filters=False, apply_annotation=False):
-    queryset = Post.objects.select_related('author')
+    """Возвращает запросы для модели Post."""
+    queryset = Post.objects.select_related('author', 'location', 'category')
     if apply_filters:
         queryset = queryset.filter(
             is_published=True,
@@ -27,7 +28,7 @@ def get_posts_queryset(apply_filters=False, apply_annotation=False):
         )
     if apply_annotation:
         queryset = queryset.annotate(comment_count=Count('comments')
-                                     ).order_by('-created_at')
+                                     ).order_by('-pub_date')
     return queryset
 
 
@@ -42,9 +43,8 @@ class OnlyAuthorMixin(UserPassesTestMixin):
         return redirect('blog:index')
 
     def get_success_url(self):
-        return reverse('blog:post_detail',
-                       kwargs={'post_id': self.object.post.pk}
-                       )
+        post_id = self.kwargs.get('post_id')
+        return reverse('blog:post_detail', kwargs={'post_id': post_id})
 
 
 class CommentMixin:
@@ -52,25 +52,22 @@ class CommentMixin:
     template_name = 'blog/comment.html'
 
     def get_object(self, queryset=None):
-        comment_id = self.kwargs.get('comment_id')
         return get_object_or_404(
             Comment,
-            id=comment_id,
+            id=self.kwargs.get('comment_id'),
             post_id=self.kwargs['post_id']
         )
 
     def get_success_url(self):
-        return reverse(
-            'blog:post_detail',
-            kwargs={'post_id': self.object.post.pk}
-        )
+        post_id = self.kwargs.get('post_id')
+        return reverse('blog:post_detail', kwargs={'post_id': post_id})
 
 
 class PostListView(ListView):
     """Вернет путь к главной странице проекта."""
 
     template_name = 'blog/index.html'
-    paginate_by = settings.CONST
+    paginate_by = settings.QUANTITY_POSTS_PAGE
     queryset = get_posts_queryset(
         apply_filters=True,
         apply_annotation=True).order_by('-pub_date')
@@ -85,8 +82,10 @@ class PostDetailView(DetailView):
     pk_url_kwarg = 'post_id'
 
     def get_object(self, queryset=None):
-        post = Post.objects.select_related(
-            'author', 'category').get(pk=self.kwargs['post_id'])
+        post = get_object_or_404(
+            Post.objects.select_related(
+                'author', 'location', 'category'), pk=self.kwargs['post_id']
+        )
         if (post.author != self.request.user
             and (not post.is_published
                  or not post.category.is_published
@@ -100,19 +99,13 @@ class PostDetailView(DetailView):
         context['comments'] = self.object.comments.select_related('author')
         return context
 
-    def dispatch(self, request, *args, **kwargs):
-        get_object_or_404(Post, pk=kwargs['post_id'])
-        return super().dispatch(request, *args, **kwargs)
-
 
 class CategoryPostListView(ListView):
     """Вернет путь к странице категории."""
 
-    model = Post
     template_name = 'blog/category.html'
-    paginate_by = settings.CONST
+    paginate_by = settings.QUANTITY_POSTS_PAGE
     context_object_name = 'post_list'
-    queryset = get_posts_queryset(apply_filters=True, apply_annotation=True)
 
     def get_category(self):
         category_slug = self.kwargs['category_slug']
@@ -123,7 +116,10 @@ class CategoryPostListView(ListView):
         )
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = get_posts_queryset(
+            apply_filters=True,
+            apply_annotation=True
+        )
         category = self.get_category()
         post_list = queryset.filter(
             category=category
@@ -142,25 +138,19 @@ class UserProfileView(ListView):
 
     model = User
     template_name = 'blog/profile.html'
-    paginate_by = settings.CONST
+    paginate_by = settings.QUANTITY_POSTS_PAGE
+    pk_url_kwarg = 'username'
 
     def get_user(self, queryset=None):
         username = self.kwargs.get('username')
         return get_object_or_404(User, username=username)
 
     def get_queryset(self):
-        queryset = super().get_queryset()
         user = self.get_user()
-        if user == self.request.user:
-            queryset = get_posts_queryset(
-                apply_filters=False,
-                apply_annotation=True
-            ).order_by('-pub_date')
-        else:
-            queryset = get_posts_queryset(
-                apply_filters=True,
-                apply_annotation=True
-            ).order_by('-pub_date')
+        queryset = get_posts_queryset(
+            apply_filters=user != self.request.user,
+            apply_annotation=True
+        ).order_by('-pub_date')
         queryset = queryset.filter(author=user)
         return queryset
 
@@ -220,16 +210,16 @@ class PostDeleteView(LoginRequiredMixin, OnlyAuthorMixin, DeleteView):
     template_name = 'blog/create.html'
     pk_url_kwarg = 'post_id'
 
+    def get_object(self, queryset=None):
+        return get_object_or_404(Post, pk=self.kwargs['post_id'])
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['form'] = PostForm()
-        context['post'] = self.object
-        context['location'] = self.object.location
+        post = self.get_object()
+        context['form'] = PostForm(instance=post)
+        context['post'] = post
+        context['location'] = post.location
         return context
-
-    def dispatch(self, request, *args, **kwargs):
-        get_object_or_404(Post, pk=kwargs['post_id'])
-        return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self):
         return reverse('blog:profile',
