@@ -43,8 +43,8 @@ class OnlyAuthorMixin(UserPassesTestMixin):
         return redirect('blog:index')
 
     def get_success_url(self):
-        post_id = self.kwargs.get('post_id')
-        return reverse('blog:post_detail', kwargs={'post_id': post_id})
+        return reverse('blog:post_detail',
+                       kwargs={'post_id': self.kwargs.get('post_id')})
 
 
 class CommentMixin:
@@ -59,8 +59,8 @@ class CommentMixin:
         )
 
     def get_success_url(self):
-        post_id = self.kwargs.get('post_id')
-        return reverse('blog:post_detail', kwargs={'post_id': post_id})
+        return reverse('blog:post_detail',
+                       kwargs={'post_id': self.kwargs.get('post_id')})
 
 
 class PostListView(ListView):
@@ -70,7 +70,7 @@ class PostListView(ListView):
     paginate_by = settings.QUANTITY_POSTS_PAGE
     queryset = get_posts_queryset(
         apply_filters=True,
-        apply_annotation=True).order_by('-pub_date')
+        apply_annotation=True)
 
 
 class PostDetailView(DetailView):
@@ -123,7 +123,7 @@ class CategoryPostListView(ListView):
         category = self.get_category()
         post_list = queryset.filter(
             category=category
-        ).order_by('-pub_date')
+        )
         return post_list
 
     def get_context_data(self, **kwargs):
@@ -150,7 +150,7 @@ class UserProfileView(ListView):
         queryset = get_posts_queryset(
             apply_filters=user != self.request.user,
             apply_annotation=True
-        ).order_by('-pub_date')
+        )
         queryset = queryset.filter(author=user)
         return queryset
 
